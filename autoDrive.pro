@@ -18,6 +18,9 @@ HEADERS += \
 FORMS += \
     mainwindow.ui
 
+INCLUDEPATH +=D:\\opencv\\opencv_build\\install\\include
+LIBS += D:\\opencv\\opencv_build\\install\\x64\mingw\\bin\\libopencv_*.dll
+
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin
 else: unix:!android: target.path = /opt/$${TARGET}/bin

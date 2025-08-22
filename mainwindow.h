@@ -10,6 +10,10 @@
 #include <QGraphicsPolygonItem>
 #include <QGraphicsPathItem>
 #include "global.h"
+#include <QFileDialog>
+#include <QDebug>
+#include <QMessageBox>
+#include <opencv2/opencv.hpp>
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -34,6 +38,7 @@ private slots:
     void onDecelPressed();
     void onBrakePressed();
     void onFigure8Pressed(); // 8字形轨迹按钮
+    void onFigureHandWritePressed();
     
     // 运动更新
     void updateCarPosition();
@@ -41,9 +46,12 @@ private slots:
     // 控制按钮释放
     void releaseControls();
 
+    void loadImage();
+    void onInitPressed();
+
 private:
     Ui::MainWindow *ui;
-    QGraphicsScene *scene;
+    QGraphicsScene *scene, *scene_2;
     
     // 小车属性
     QGraphicsItemGroup *carGroup;  // 小车组包含车身和车头指示器
@@ -63,11 +71,11 @@ private:
     bool rightPressed = false;
     bool accelPressed = false;
     bool decelPressed = false;
-    int figureAutoMode = manualMode; // 自动模式标志
+    int driveMode = manualMode; // 自动模式标志
     
-    // 8字形轨迹参数
-    QVector<QPointF> figure8Points; // 预生成的8字形点
-    int figure8Index = 0; // 当前8字形点索引
+    // 轨迹参数
+    QVector<QPointF> figurePoints;
+    int figureIndex = 0; // 当前8字形点索引
     double figure8Size = 300; // 8字形大小
     
     // 定时器
@@ -77,7 +85,7 @@ private:
     QGraphicsSimpleTextItem *cornerLabels[4]; // 四个角的坐标标签
     
     // 视图边框
-    QGraphicsRectItem *viewBorder;
+    QGraphicsRectItem *viewBorder, *viewBorder_2;
     
     // 更新状态显示
     void updateStatusDisplay();
@@ -102,5 +110,8 @@ private:
     // 更新视图边框
     void updateViewBorder();
 
+    void extractCurvePoints(cv::Mat image);
+    void displayPoints();
+    void adjustFigure();
 };
 #endif // MAINWINDOW_H

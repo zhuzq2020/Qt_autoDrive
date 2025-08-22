@@ -12,6 +12,7 @@
 #include <QPainterPath>
 #include <QResource>
 #include <QDir>
+#include <cmath>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -24,6 +25,12 @@ MainWindow::MainWindow(QWidget *parent)
     ui->graphicsView->setScene(scene);
     ui->graphicsView->setRenderHint(QPainter::Antialiasing); // 抗锯齿
     ui->graphicsView->setFrameShape(QFrame::NoFrame); // 移除默认边框
+
+    scene_2 = new QGraphicsScene(this);
+    ui->graphicsView_2->setScene(scene_2);
+    ui->graphicsView_2->setStyleSheet("border: 1px solid black;"); // 设置黑色边框（1px实线）
+    ui->graphicsView_2->setRenderHint(QPainter::Antialiasing); // 抗锯齿
+    ui->graphicsView_2->setRenderHint(QPainter::SmoothPixmapTransform, true); // 平滑缩放
     
     // 设置初始中心点为0,0
     carPosition = QPointF(0, 0);
@@ -55,7 +62,10 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->btnDecel, &QPushButton::pressed, this, &MainWindow::onDecelPressed);
     connect(ui->btnBrake, &QPushButton::pressed, this, &MainWindow::onBrakePressed);
     connect(ui->btnFigure8, &QPushButton::pressed, this, &MainWindow::onFigure8Pressed); // 8字形按钮
-    
+    connect(ui->btnFigureHandWrite, &QPushButton::pressed, this, &MainWindow::onFigureHandWritePressed); // 8字形按钮
+    connect(ui->loadButton, &QPushButton::clicked, this, &MainWindow::loadImage);
+    connect(ui->initButton, &QPushButton::clicked, this, &MainWindow::onInitPressed);
+
     // 按钮释放连接
     connect(ui->btnLeft, &QPushButton::released, this, &MainWindow::releaseControls);
     connect(ui->btnRight, &QPushButton::released, this, &MainWindow::releaseControls);
@@ -87,6 +97,12 @@ MainWindow::MainWindow(QWidget *parent)
     viewBorder->setZValue(5); // 在轨迹之上，小车之下
     scene->addItem(viewBorder);
 
+    viewBorder_2 = new QGraphicsRectItem();
+    viewBorder_2->setPen(QPen(Qt::darkGray, 2));
+    viewBorder_2->setBrush(Qt::NoBrush);
+    viewBorder_2->setZValue(5); // 在轨迹之上，小车之下
+    scene_2->addItem(viewBorder_2);
+
     // 初始设置视图中心为(0,0)
     ui->graphicsView->centerOn(0, 0);
     
@@ -96,6 +112,15 @@ MainWindow::MainWindow(QWidget *parent)
     
     // 设置初始场景范围（以小车为中心）
     updateSceneRect();
+}
+
+void MainWindow::onInitPressed()
+{
+    driveMode = manualMode;
+    carPosition = QPointF(0, 0);
+    carDirection = 0;
+    carSpeed = 0;
+    trajectory.clear();
 }
 
 // 动态更新场景范围
@@ -149,54 +174,50 @@ void MainWindow::createCarHeadIndicator()
 void MainWindow::onLeftPressed()
 {
     leftPressed = true;
-    figureAutoMode = manualMode;
+    driveMode = manualMode;
 }
 
 void MainWindow::onRightPressed()
 {
     rightPressed = true;
-    figureAutoMode = manualMode;
+    driveMode = manualMode;
 }
 
 void MainWindow::onAccelPressed()
 {
     accelPressed = true;
-    figureAutoMode = manualMode;
+    driveMode = manualMode;
 }
 
 void MainWindow::onDecelPressed()
 {
     decelPressed = true;
-    figureAutoMode = manualMode;
+    driveMode = manualMode;
 }
 
 void MainWindow::onBrakePressed()
 {
     carSpeed = 0;  // 急刹停车
-    figureAutoMode = manualMode;
+    driveMode = manualMode;
 }
 
 void MainWindow::onFigure8Pressed()
 {
-    figureAutoMode = figure8Mode; // 切换8字形模式
+    driveMode = figure8Mode; // 切换8字形模式
     
-    if(figureAutoMode) {
-        // 进入8字形模式
-        // 以当前小车位置为起点，当前方向为起始方向生成8字形
-        generateFigure8();
-        
-        figure8Index = 1;
-        carSpeed = 5; // 设置固定速度
+    // 以当前小车位置为起点，当前方向为起始方向生成8字形
+    generateFigure8();
+    
+    figureIndex = 1;
+    carSpeed = 5; // 设置固定速度
+}
 
-        // trajectory.append(carPosition); // 保留当前位置
-        
-        // 重绘轨迹
-        // drawTrajectory();
-    } else {
-        // 退出8字形模式，小车停止
-        carSpeed = 0;
-    }
+void MainWindow::onFigureHandWritePressed()
+{
+    driveMode = figureHandWriteMode; // 切换手写模式
     
+    figureIndex = 1;
+    carSpeed = 5; // 设置固定速度
 }
 
 void MainWindow::releaseControls()
@@ -211,23 +232,45 @@ void MainWindow::generateFigure8()
 {
     // 生成8字形轨迹点（参数方程）
     int totalPoints = 200; // 总点数
-    figure8Points.clear();
-    
-    // 计算旋转角度（使曲线在起点处与x轴相切）
-    double roAngle = -M_PI/4; // 旋转-45度（顺时针45度）
+    figurePoints.clear();
 
     // 标准8字形参数方程（以原点为中心）
     for(int i = 0; i < totalPoints; i++) {
         double t = 2.0 * M_PI * i / totalPoints;
         double x_orig = figure8Size * sin(t) / (1 + pow(cos(t), 2));
         double y_orig = figure8Size * sin(t) * cos(t) / (1 + pow(cos(t), 2));
+        figurePoints.append(QPointF(x_orig, y_orig));
 
         // 应用旋转（使曲线在t=0时与x轴相切）
-        double x = x_orig * cos(roAngle) - y_orig * sin(roAngle);
-        double y = x_orig * sin(roAngle) + y_orig * cos(roAngle);
-        figure8Points.append(QPointF(x, y));
+        // double x = x_orig * cos(roAngle) - y_orig * sin(roAngle);
+        // double y = x_orig * sin(roAngle) + y_orig * cos(roAngle);
+        // figurePoints.append(QPointF(x, y));
     }
+
+    displayPoints();
+    adjustFigure();
+}
+
+void MainWindow::adjustFigure()
+{
+    double dx = figurePoints[1].x() - figurePoints[0].x();
+    double dy = figurePoints[1].y() - figurePoints[0].y();
     
+    // 使用 atan2 计算弧度角（范围：[-π, π]）
+    double angleRad = std::atan2(dy, dx);
+
+    // 计算旋转角度（使曲线在起点处与x轴相切）
+    double roAngle = -angleRad;
+
+    for(int i = 0; i < figurePoints.size(); i++) {
+        double x_orig = figurePoints[i].x();
+        double y_orig = figurePoints[i].y();
+
+        // 应用旋转（使曲线在t=0时与x轴相切）
+        figurePoints[i].setX(x_orig * cos(roAngle) - y_orig * sin(roAngle));
+        figurePoints[i].setY(x_orig * sin(roAngle) + y_orig * cos(roAngle));
+    }
+
     // 计算旋转角度（使8字形方向与小车当前方向一致）
     double rotationAngle = carDirection;
     
@@ -237,18 +280,19 @@ void MainWindow::generateFigure8()
     transform.rotate(rotationAngle); // 旋转到小车当前方向
     
     // 应用变换到所有点
-    for(int i = 0; i < figure8Points.size(); i++) {
-        figure8Points[i] = transform.map(figure8Points[i]);
+    for(int i = 0; i < figurePoints.size(); i++) {
+        figurePoints[i] = transform.map(figurePoints[i]);
     }
 }
 
 void MainWindow::updateCarPosition()
 {
-    if(figureAutoMode) {
-        // 8字形模式
-        if(figure8Index < figure8Points.size()) {
+    switch (driveMode)
+    {
+    case figure8Mode:
+        if(figureIndex < figurePoints.size()) {
             // 获取下一个8字形点
-            QPointF nextPos = figure8Points[figure8Index];
+            QPointF nextPos = figurePoints[figureIndex];
             
             // 计算方向变化（基于当前位置和下一位置）
             double dx = nextPos.x() - carPosition.x();
@@ -257,14 +301,36 @@ void MainWindow::updateCarPosition()
             
             // 更新位置
             carPosition = nextPos;
-            figure8Index++;
+            figureIndex++;
             
             // 如果到达终点，回到起点
-            if(figure8Index >= figure8Points.size()) {
-                figure8Index = 0;
+            if(figureIndex >= figurePoints.size()) {
+                figureIndex = 0;
             }
         }
-    } else {
+        break;
+    case figureHandWriteMode:
+        if(figureIndex < figurePoints.size()) {
+            // 获取下一个点
+            QPointF nextPos = figurePoints[figureIndex];
+            
+            // 计算方向变化（基于当前位置和下一位置）
+            double dx = nextPos.x() - carPosition.x();
+            double dy = nextPos.y() - carPosition.y();
+            carDirection = qRadiansToDegrees(std::atan2(dy, dx));
+            
+            // 更新位置
+            carPosition = nextPos;
+            figureIndex++;
+            
+            // 如果到达终点，回到起点
+            if(figureIndex >= figurePoints.size()) {
+                driveMode = manualMode;
+                carSpeed = 0;
+            }
+        }
+        break;
+    default:
         // 手动模式
         // 转向控制（左右转向）
         if (leftPressed) carDirection -= 2.0;  // 左转
@@ -285,6 +351,7 @@ void MainWindow::updateCarPosition()
         
         // 更新位置
         carPosition += QPointF(dx, dy);
+        break;
     }
     
     // 更新小车位置和方向
@@ -315,7 +382,7 @@ void MainWindow::updateCarPosition()
 
 void MainWindow::drawTrajectory()
 {
-    // 清除旧轨迹
+    // 清除全部旧轨迹
     QList<QGraphicsItem*> items = scene->items();
     for (QGraphicsItem *item : items) {
         if (item->data(0).toString() == "trajectory" || 
@@ -327,14 +394,15 @@ void MainWindow::drawTrajectory()
     
     // 绘制新轨迹
     QPen pen;
-    if(figureAutoMode) {
-        pen.setColor(Qt::gray);  // 表示8字形轨迹
+    if(driveMode) {
+        pen.setColor(Qt::gray);  // 自动轨迹
     } else {
         pen.setColor(Qt::green);  // 手动轨迹
     }
     pen.setWidth(2);
     pen.setStyle(Qt::SolidLine);
     
+    // 小车200个点的已移动轨迹
     for (int i = 1; i < trajectory.size(); i++) {
         QGraphicsLineItem *line = scene->addLine(
             trajectory[i-1].x(), trajectory[i-1].y(),
@@ -344,13 +412,13 @@ void MainWindow::drawTrajectory()
         line->setZValue(-1); // 置于底层
     }
     
-    // 在8字形模式下，绘制完整的8字形路径（规划路径）
-    if(figureAutoMode) {
+    // 在自动模式下，绘制完整的规划路径
+    if(driveMode) {
         QPainterPath path;
-        if(!figure8Points.isEmpty()) {
-            path.moveTo(figure8Points[0]);
-            for(int i = 1; i < figure8Points.size(); i++) {
-                path.lineTo(figure8Points[i]);
+        if(!figurePoints.isEmpty()) {
+            path.moveTo(figurePoints[0]);
+            for(int i = 1; i < figurePoints.size(); i++) {
+                path.lineTo(figurePoints[i]);
             }
             path.closeSubpath(); // 闭合路径
             
@@ -367,7 +435,7 @@ void MainWindow::drawTrajectory()
 
 void MainWindow::updateStatusDisplay()
 {
-    QString modeText = figureAutoMode ? "8字形模式" : "手动模式";
+    QString modeText = driveMode ? "自动模式" : "手动模式";
     
     // 显示状态信息
     QString status = QString("模式: %6\n位置: (%1, %2)\n"
@@ -437,4 +505,124 @@ void MainWindow::centerViewOnCar()
 {
     // 设置视图中心为小车位置
     ui->graphicsView->centerOn(carPosition);
+}
+
+void MainWindow::loadImage()
+{
+    QString filename = QFileDialog::getOpenFileName(
+            this, 
+            "选择图片", 
+            QDir::homePath(), 
+            "Images (*.png *.jpg *.bmp)"
+        );
+        
+    if (filename.isEmpty()) return;
+    
+    cv::Mat image = cv::imread(filename.toStdString(), cv::IMREAD_GRAYSCALE);
+    
+    if (image.empty()) {
+        QMessageBox::critical(this, "Error", "图片加载失败！");
+        return;
+    }
+    
+    // 处理图像并提取曲线点
+    extractCurvePoints(image);
+    
+    // 在场景中显示结果
+    // scene->clear();
+    displayPoints();
+    adjustFigure();
+}
+
+void MainWindow::extractCurvePoints(cv::Mat image) 
+{
+    figurePoints.clear();
+
+    // 1. 二值化图像
+    cv::Mat binary;
+    cv::threshold(image, binary, 128, 255, cv::THRESH_BINARY_INV);
+
+    // 2. 提取图像骨架（中心线）
+    cv::Mat skeleton = cv::Mat::zeros(binary.size(), CV_8UC1);
+    cv::Mat temp;
+    cv::Mat eroded;
+
+    cv::Mat element = cv::getStructuringElement(cv::MORPH_CROSS, cv::Size(3, 3));
+
+    bool done;
+    do {
+        cv::erode(binary, eroded, element);
+        cv::dilate(eroded, temp, element);
+        cv::subtract(binary, temp, temp);
+        cv::bitwise_or(skeleton, temp, skeleton);
+        eroded.copyTo(binary);
+        
+        done = (cv::countNonZero(binary) == 0);
+    } while (!done);
+
+    // 3. 查找骨架轮廓
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(skeleton, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE);
+
+    // 4. 找到最长的轮廓
+    int maxIndex = -1;
+    double maxLength = 0;
+
+    for (size_t i = 0; i < contours.size(); i++) {
+        double length = cv::arcLength(contours[i], false);
+        if (length > maxLength) {
+            maxLength = length;
+            maxIndex = i;
+        }
+    }
+
+    // 5. 对轮廓点进行平滑处理
+    if (maxIndex >= 0) {
+        std::vector<cv::Point> smoothedContour;
+        
+        // 使用高斯滤波平滑轮廓
+        std::vector<cv::Point2f> contourFloat;
+        for (const auto& pt : contours[maxIndex]) {
+            contourFloat.emplace_back(pt.x, pt.y);
+        }
+        
+        // 应用高斯平滑
+        cv::Mat contourMat(contourFloat);
+        cv::GaussianBlur(contourMat, contourMat, cv::Size(5, 5), 1.5);
+        
+        // 转换为整数点
+        for (int i = 0; i < contourMat.rows; i++) {
+            cv::Point2f pt = contourMat.at<cv::Point2f>(i);
+            smoothedContour.emplace_back(cvRound(pt.x), cvRound(pt.y));
+        }
+        
+        // 6. 采样点以减少点数并保持平滑
+        const int sampleStep = 5; // 每5个点采样一个
+        for (int i = 0; i < smoothedContour.size(); i += sampleStep) {
+            figurePoints.append(QPointF(smoothedContour[i].x, smoothedContour[i].y));
+        }
+    }
+}
+
+void MainWindow::displayPoints() {
+    if (figurePoints.isEmpty()) return;
+
+    scene_2->clear();
+    
+    // 绘制曲线
+    QPainterPath path;
+    path.moveTo(figurePoints.first());
+    
+    for (int i = 1; i < figurePoints.size(); i++) {
+        path.lineTo(figurePoints[i]);
+    }
+    
+    auto pathItem = new QGraphicsPathItem(path);
+    pathItem->setPen(QPen(Qt::red, 1));
+    scene_2->addItem(pathItem);
+
+    // 自适应视图范围（带边距）
+    QRectF pathRect = path.boundingRect().adjusted(-20, -20, 20, 20); // 增加20px边距
+    scene_2->setSceneRect(pathRect);
+    ui->graphicsView_2->fitInView(pathRect, Qt::KeepAspectRatio);
 }

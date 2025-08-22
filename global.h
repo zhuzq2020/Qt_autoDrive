@@ -5,7 +5,7 @@ typedef enum
 {
 	manualMode = 0,
     figure8Mode = 1,
-    figureBMode = 2
+    figureHandWriteMode = 2
 } TmsMotor2FunCode;
 
 
